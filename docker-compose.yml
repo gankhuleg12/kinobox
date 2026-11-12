@@ -1,0 +1,98 @@
+# KinoBox — бүрэн stack
+#   docker compose up -d --build
+#   docker compose run --rm api npm run db:seed     (анхны admin + жишээ өгөгдөл)
+#
+# Production-д: .env файлд бүх secret-ийг тохируулж, web service-ийн өмнө
+# TLS terminate хийдэг proxy (Cloudflare, Caddy, Traefik г.м.) байрлуулна.
+
+x-api-env: &api-env
+  NODE_ENV: ${NODE_ENV:-production}
+  PORT: 4000
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  API_URL: ${API_URL:-http://localhost:8080}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+  TRUST_PROXY: ${TRUST_PROXY:-1}
+  DATABASE_URL: mysql://kinobox:${MYSQL_PASSWORD:?MYSQL_PASSWORD шаардлагатай}@mysql:3306/kinobox
+  REDIS_URL: redis://redis:6379
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
+  JWT_PLAYBACK_SECRET: ${JWT_PLAYBACK_SECRET:?}
+  COOKIE_SECRET: ${COOKIE_SECRET:?}
+  SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:?}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  SEED_SAMPLE_MOVIES: ${SEED_SAMPLE_MOVIES:-false}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: kinobox
+      MYSQL_USER: kinobox
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD шаардлагатай}
+    # Монгол үгийн fulltext хайлтад богино үг, stopword-ыг идэвхжүүлнэ
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --innodb-ft-min-token-size=2
+      - --innodb-ft-enable-stopword=0
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # BullMQ нь noeviction policy шаардана
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    environment: *api-env
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # Эхлэхдээ migration-ийг автоматаар хэрэгжүүлнэ
+    command: ['sh', '-c', 'npx prisma migrate deploy && node dist/server.js']
+
+  worker:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      <<: *api-env
+      TRANSCODE_TMP_DIR: /work
+      TRANSCODE_CONCURRENCY: ${TRANSCODE_CONCURRENCY:-1}
+    depends_on:
+      api: { condition: service_started }
+    command: ['node', 'dist/worker.js']
+    volumes:
+      - transcode-tmp:/work
+    healthcheck:
+      disable: true
+
+  web:
+    build: ./client
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${WEB_PORT:-8080}:80'
+
+volumes:
+  mysql-data:
+  redis-data:
+  transcode-tmp:

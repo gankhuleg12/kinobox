@@ -1,0 +1,462 @@
+// KinoBox — MySQL schema
+// Бүх мөнгөн дүн MNT-ээр, бүхэл тоо (Int) хэлбэрээр хадгалагдана.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "foreignKeys"
+}
+
+// ───────────────────────── Users & Auth ─────────────────────────
+
+enum Role {
+  USER
+  EDITOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BANNED
+}
+
+model User {
+  id              String     @id @default(cuid())
+  name            String     @db.VarChar(100)
+  email           String     @unique @db.VarChar(191)
+  passwordHash    String?    @db.VarChar(255)
+  googleId        String?    @unique @db.VarChar(64)
+  avatarUrl       String?    @db.VarChar(500)
+  role            Role       @default(USER)
+  status          UserStatus @default(ACTIVE)
+  locale          String     @default("mn") @db.VarChar(5)
+  emailVerifiedAt DateTime?
+  failedLogins    Int        @default(0)
+  lockedUntil     DateTime?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?    @db.VarChar(45)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  sessions       Session[]
+  resetTokens    PasswordResetToken[]
+  payments       Payment[]
+  rentals        Rental[]
+  subscriptions  Subscription[]
+  watchProgress  WatchProgress[]
+  auditLogs      AuditLog[]
+
+  @@index([createdAt])
+  @@index([role, status])
+}
+
+model Session {
+  id              String    @id @default(cuid())
+  userId          String
+  refreshHash     String    @db.Char(64)
+  prevRefreshHash String?   @db.Char(64)
+  rotatedAt       DateTime?
+  deviceName      String?   @db.VarChar(120)
+  userAgent       String?   @db.VarChar(500)
+  ip              String?   @db.VarChar(45)
+  createdAt       DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revokeReason    String?   @db.VarChar(32)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ───────────────────────── Catalog ─────────────────────────
+
+model Category {
+  id         Int      @id @default(autoincrement())
+  slug       String   @unique @db.VarChar(80)
+  nameMn     String   @db.VarChar(100)
+  nameEn     String   @db.VarChar(100)
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  showOnHome Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  movies MovieCategory[]
+
+  @@index([isActive, sortOrder])
+}
+
+enum MovieStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VideoStatus {
+  NONE
+  UPLOADING
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
+/// SUBSCRIPTION: сарын багц эсвэл түрээсээр үзнэ
+/// RENT_ONLY:    зөвхөн түрээсээр (шинэ, premium кино)
+/// FREE:         нэвтэрсэн бүх хэрэглэгч үнэгүй
+enum AccessType {
+  SUBSCRIPTION
+  RENT_ONLY
+  FREE
+}
+
+/// MOVIE:  нэг видеотой кино (видео нь Movie дээр)
+/// SERIES: олон ангит (видео нь Episode бүр дээр, түрээс/багц нь бүх ангид хамаарна)
+enum MovieKind {
+  MOVIE
+  SERIES
+}
+
+model Movie {
+  id            String      @id @default(cuid())
+  kind          MovieKind   @default(MOVIE)
+  /// Цувралын эхний хэдэн анги нэвтэрсэн хэрэглэгчид үнэгүй
+  freeEpisodes  Int         @default(0) @db.SmallInt
+  slug          String      @unique @db.VarChar(160)
+  title         String      @db.VarChar(200)
+  titleEn       String?     @db.VarChar(200)
+  description   String      @db.Text
+  descriptionEn String?     @db.Text
+  releaseYear   Int?        @db.SmallInt
+  durationSec   Int?
+  ageRating     String?     @db.VarChar(10)
+  imdbRating    Decimal?    @db.Decimal(3, 1)
+  country       String?     @db.VarChar(80)
+  director      String?     @db.VarChar(160)
+  cast          String?     @db.VarChar(500)
+  posterKey     String?     @db.VarChar(300)
+  posterColor   String?     @db.VarChar(7)
+  backdropKey   String?     @db.VarChar(300)
+  trailerUrl    String?     @db.VarChar(500)
+  status        MovieStatus @default(DRAFT)
+  isFeatured    Boolean     @default(false)
+  accessType    AccessType  @default(SUBSCRIPTION)
+  rentPrice     Int?
+  rentHours     Int?
+  fbCode        String?     @unique @db.VarChar(20)
+  videoStatus   VideoStatus @default(NONE)
+  videoProgress Int         @default(0)
+  videoError    String?     @db.VarChar(500)
+  sourceKey     String?     @db.VarChar(300)
+  hlsPath       String?     @db.VarChar(300)
+  hlsKeyEnc     String?     @db.VarChar(255)
+  renditions    Json?
+  viewCount     Int         @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  categories    MovieCategory[]
+  rentals       Rental[]
+  payments      Payment[]
+  watchProgress WatchProgress[]
+  episodes      Episode[]
+  reels         Reel[]
+
+  @@index([status, publishedAt])
+  @@index([status, isFeatured])
+  @@index([status, viewCount])
+  @@index([status, releaseYear])
+  @@index([kind, status])
+  @@fulltext([title, titleEn, description])
+}
+
+model Episode {
+  id            String      @id @default(cuid())
+  movieId       String
+  seasonNumber  Int         @default(1) @db.SmallInt
+  episodeNumber Int         @db.SmallInt
+  title         String?     @db.VarChar(200)
+  titleEn       String?     @db.VarChar(200)
+  description   String?     @db.Text
+  durationSec   Int?
+  stillKey      String?     @db.VarChar(300)
+  isPublished   Boolean     @default(true)
+  videoStatus   VideoStatus @default(NONE)
+  videoProgress Int         @default(0)
+  videoError    String?     @db.VarChar(500)
+  sourceKey     String?     @db.VarChar(300)
+  hlsPath       String?     @db.VarChar(300)
+  hlsKeyEnc     String?     @db.VarChar(255)
+  renditions    Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@unique([movieId, seasonNumber, episodeNumber])
+  @@index([movieId, isPublished])
+}
+
+/// Босоо богино видео (trailer, хэсэг). Public CDN-ээс MP4-ээр шууд тоглогдоно.
+model Reel {
+  id            String      @id @default(cuid())
+  movieId       String?
+  caption       String?     @db.VarChar(300)
+  status        MovieStatus @default(DRAFT)
+  sortOrder     Int         @default(0)
+  videoStatus   VideoStatus @default(NONE)
+  videoProgress Int         @default(0)
+  videoError    String?     @db.VarChar(500)
+  sourceKey     String?     @db.VarChar(300)
+  videoKey      String?     @db.VarChar(300)
+  posterKey     String?     @db.VarChar(300)
+  durationSec   Int?
+  width         Int?        @db.SmallInt
+  height        Int?        @db.SmallInt
+  viewCount     Int         @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  movie Movie? @relation(fields: [movieId], references: [id], onDelete: SetNull)
+
+  @@index([status, videoStatus, sortOrder, publishedAt])
+  @@index([movieId])
+}
+
+model MovieCategory {
+  movieId    String
+  categoryId Int
+
+  movie    Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([movieId, categoryId])
+  @@index([categoryId])
+}
+
+model WatchProgress {
+  userId      String
+  movieId     String
+  /// Цувралын хувьд хамгийн сүүлд үзсэн анги
+  episodeId   String?  @db.VarChar(30)
+  positionSec Int
+  durationSec Int?
+  updatedAt   DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@id([userId, movieId])
+  @@index([userId, updatedAt])
+  @@index([movieId])
+}
+
+// ───────────────────────── Commerce ─────────────────────────
+
+model Plan {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique @db.VarChar(40)
+  nameMn        String   @db.VarChar(100)
+  nameEn        String   @db.VarChar(100)
+  descriptionMn String?  @db.VarChar(500)
+  descriptionEn String?  @db.VarChar(500)
+  price         Int
+  durationDays  Int
+  isActive      Boolean  @default(true)
+  isDefault     Boolean  @default(false)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscriptions Subscription[]
+  payments      Payment[]
+
+  @@index([isActive, sortOrder])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  userId    String
+  planId    Int
+  status    SubscriptionStatus @default(ACTIVE)
+  startsAt  DateTime
+  endsAt    DateTime
+  paymentId String?            @unique
+  note      String?            @db.VarChar(255)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan    Plan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, endsAt])
+  @@index([status, endsAt])
+}
+
+model Rental {
+  id        String   @id @default(cuid())
+  userId    String
+  movieId   String
+  paymentId String?  @unique
+  startsAt  DateTime
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie   Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, movieId, expiresAt])
+  @@index([movieId])
+}
+
+enum PaymentType {
+  RENTAL
+  SUBSCRIPTION
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  userId            String
+  type              PaymentType
+  movieId           String?
+  planId            Int?
+  amount            Int
+  currency          String        @default("MNT") @db.Char(3)
+  status            PaymentStatus @default(PENDING)
+  provider          String        @db.VarChar(20)
+  providerInvoiceId String?       @unique @db.VarChar(128)
+  providerTxnId     String?       @db.VarChar(128)
+  paymentUrl        String?       @db.VarChar(1000)
+  qrText            String?       @db.Text
+  qrImage           String?       @db.MediumText
+  deeplinks         Json?
+  source            String        @default("web") @db.VarChar(20)
+  paidAt            DateTime?
+  expiresAt         DateTime
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie        Movie?        @relation(fields: [movieId], references: [id], onDelete: SetNull)
+  plan         Plan?         @relation(fields: [planId], references: [id], onDelete: SetNull)
+  rental       Rental?
+  subscription Subscription?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, expiresAt])
+  @@index([movieId])
+  @@index([planId])
+}
+
+model WebhookEvent {
+  id             String    @id @default(cuid())
+  provider       String    @db.VarChar(20)
+  eventId        String    @db.VarChar(191)
+  signatureValid Boolean
+  payload        Json
+  status         String    @db.VarChar(20)
+  error          String?   @db.VarChar(500)
+  paymentId      String?   @db.VarChar(30)
+  createdAt      DateTime  @default(now())
+  processedAt    DateTime?
+
+  @@unique([provider, eventId])
+  @@index([createdAt])
+  @@index([paymentId])
+}
+
+// ───────────────────────── Platform ─────────────────────────
+
+/// Admin Panel-ээс удирдах тохиргоо. isSecret=true бол value нь AES-256-GCM-ээр шифрлэгдсэн.
+model Setting {
+  key         String   @id @db.VarChar(80)
+  value       String   @db.Text
+  isSecret    Boolean  @default(false)
+  updatedById String?  @db.VarChar(30)
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  actorId    String?
+  action     String   @db.VarChar(80)
+  entityType String?  @db.VarChar(40)
+  entityId   String?  @db.VarChar(64)
+  ip         String?  @db.VarChar(45)
+  userAgent  String?  @db.VarChar(300)
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+}
+
+enum FbEventStatus {
+  RECEIVED
+  SENT
+  NO_MATCH
+  SKIPPED
+  FAILED
+}
+
+model FbBotEvent {
+  id         String        @id @default(cuid())
+  kind       String        @db.VarChar(20)
+  externalId String        @unique @db.VarChar(191)
+  postId     String?       @db.VarChar(191)
+  senderId   String        @db.VarChar(64)
+  senderName String?       @db.VarChar(191)
+  text       String?       @db.VarChar(1000)
+  code       String?       @db.VarChar(20)
+  movieId    String?       @db.VarChar(30)
+  status     FbEventStatus @default(RECEIVED)
+  error      String?       @db.VarChar(500)
+  createdAt  DateTime      @default(now())
+
+  @@index([createdAt])
+  @@index([movieId])
+  @@index([status, createdAt])
+}
