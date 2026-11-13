@@ -82,6 +82,7 @@ export const SETTINGS = {
   // ── Facebook Messenger bot
   'facebook.enabled': { group: 'facebook', type: 'bool', label: 'Messenger bot идэвхтэй', default: false },
   'facebook.pageId': { group: 'facebook', type: 'string', label: 'Page ID' },
+  'facebook.appId': { group: 'facebook', type: 'string', label: 'App ID', help: 'Meta App Dashboard → App settings → Basic. Токены эрхийг шалгах оношилгоонд хэрэгтэй.' },
   'facebook.appSecret': { group: 'facebook', type: 'string', label: 'App Secret', secret: true },
   'facebook.pageAccessToken': { group: 'facebook', type: 'string', label: 'Page Access Token', secret: true },
   'facebook.verifyToken': { group: 'facebook', type: 'string', label: 'Webhook Verify Token', secret: true },

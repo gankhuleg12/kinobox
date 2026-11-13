@@ -64,4 +64,36 @@ export const graphClient = {
     const pageId = await this.pageId();
     return graph<{ id: string; name: string }>('GET', `${pageId}?fields=id,name`);
   },
+
+  /** Page-д ямар app-ууд, ямар field-ээр subscribe хийгдсэн */
+  async subscribedApps() {
+    const pageId = await this.pageId();
+    return graph<{ data: { id: string; name?: string; subscribed_fields?: string[] }[] }>('GET', `${pageId}/subscribed_apps`);
+  },
+
+  /**
+   * Page-ийг энэ app-д subscribe хийнэ — үүнгүйгээр App Dashboard дээр webhook тохируулсан ч
+   * тухайн page-ийн comment/мессеж ирэхгүй (хамгийн түгээмэл алдаа). pages_manage_metadata эрх шаардлагатай.
+   */
+  async subscribePage(fields: string[]) {
+    const pageId = await this.pageId();
+    return graph<{ success?: boolean }>('POST', `${pageId}/subscribed_apps`, { subscribed_fields: fields.join(',') });
+  },
+
+  /** Page token-ий төрөл, эрхүүд (scopes), хугацаа — App ID тохируулсан үед */
+  async debugToken() {
+    const c = await creds();
+    const appId = await settings.get('facebook.appId');
+    if (!appId) return null;
+    const url = new URL(`https://graph.facebook.com/${c.version}/debug_token`);
+    url.searchParams.set('input_token', c['facebook.pageAccessToken']);
+    url.searchParams.set('access_token', `${appId}|${c['facebook.appSecret']}`);
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    const json = (await res.json().catch(() => ({}))) as {
+      data?: { app_id?: string; type?: string; is_valid?: boolean; scopes?: string[]; expires_at?: number; profile_id?: string; error?: { message?: string } };
+      error?: { message?: string; code?: number };
+    };
+    if (!res.ok || json.error) throw new GraphError(json.error?.message ?? `debug_token ${res.status}`, res.status, json.error?.code);
+    return json.data ?? null;
+  },
 };

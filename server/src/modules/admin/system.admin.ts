@@ -17,6 +17,7 @@ import { redis } from '../../lib/redis.js';
 import { transcodeQueue, WORKER_HEARTBEAT_KEY } from '../../lib/queue.js';
 import { graphClient } from '../facebook/graph.client.js';
 import { normalizeCode } from '../facebook/bot.service.js';
+import { recentDeliveries } from '../facebook/deliveries.js';
 
 // ───────────── Dashboard статистик
 export const statsAdmin = Router();
@@ -227,6 +228,71 @@ facebookAdmin.get('/events', validate({ query: eventsQuery }), async (req, res) 
     prisma.fbBotEvent.count({ where }),
   ]);
   res.json({ items, total, page: query.page, pages: Math.ceil(total / 30) });
+});
+
+/**
+ * Facebook bot-ын оношилгоо: тохиргоо, page token, page ↔ app subscription,
+ * токены эрхүүд, сүүлийн webhook хүлээн авалтууд, worker — нэг дор.
+ */
+const REQUIRED_SCOPES = ['pages_messaging', 'pages_read_engagement', 'pages_manage_metadata'];
+
+async function attempt<T>(fn: () => Promise<T>): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    return { ok: true, data: await fn() };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message.slice(0, 300) : String(err) };
+  }
+}
+
+facebookAdmin.get('/diagnostics', async (_req, res) => {
+  const cfg = await settings.getMany(['facebook.enabled', 'facebook.pageId', 'facebook.appId', 'facebook.appSecret', 'facebook.pageAccessToken', 'facebook.verifyToken', 'facebook.graphVersion']);
+  const configured = Boolean(cfg['facebook.pageId'] && cfg['facebook.pageAccessToken'] && cfg['facebook.appSecret']);
+
+  const [page, subs, token, deliveries, worker] = await Promise.all([
+    configured ? attempt(() => graphClient.healthCheck()) : Promise.resolve(null),
+    configured ? attempt(() => graphClient.subscribedApps()) : Promise.resolve(null),
+    configured && cfg['facebook.appId'] ? attempt(() => graphClient.debugToken()) : Promise.resolve(null),
+    recentDeliveries(20),
+    redis.get(WORKER_HEARTBEAT_KEY),
+  ]);
+
+  const apps = subs?.ok ? subs.data.data : [];
+  const app = apps.find((a) => a.id === cfg['facebook.appId']) ?? (apps.length === 1 ? apps[0] : undefined);
+  const scopes = token?.ok && token.data ? (token.data.scopes ?? []) : null;
+
+  res.json({
+    config: {
+      enabled: cfg['facebook.enabled'],
+      pageId: Boolean(cfg['facebook.pageId']),
+      appId: Boolean(cfg['facebook.appId']),
+      appSecret: Boolean(cfg['facebook.appSecret']),
+      pageAccessToken: Boolean(cfg['facebook.pageAccessToken']),
+      verifyToken: Boolean(cfg['facebook.verifyToken']),
+      graphVersion: cfg['facebook.graphVersion'],
+      webhookUrl: `${env.apiUrl}/api/webhooks/facebook`,
+    },
+    page: page && (page.ok ? { ok: true, name: page.data.name, id: page.data.id } : { ok: false, error: page.error }),
+    subscription: subs && {
+      ok: subs.ok,
+      error: subs.ok ? null : subs.error,
+      apps,
+      subscribed: Boolean(app),
+      feed: Boolean(app?.subscribed_fields?.includes('feed')),
+      messages: Boolean(app?.subscribed_fields?.includes('messages')),
+    },
+    token: token && (token.ok
+      ? { ok: true, type: token.data?.type ?? null, isValid: token.data?.is_valid ?? null, scopes, missing: scopes ? REQUIRED_SCOPES.filter((s) => !scopes.includes(s)) : [], expiresAt: token.data?.expires_at ?? null }
+      : { ok: false, error: token.error }),
+    deliveries,
+    workerOnline: Boolean(worker),
+  });
+});
+
+facebookAdmin.post('/subscribe-page', async (req, res) => {
+  const result = await attempt(() => graphClient.subscribePage(['feed', 'messages']));
+  audit({ action: 'facebook.page.subscribe', entityType: 'settings', entityId: 'facebook', meta: { ok: result.ok }, req });
+  if (!result.ok) throw AppError.badRequest(`Subscribe амжилтгүй: ${result.error}`);
+  res.json({ ok: true });
 });
 
 const codeBody = z.object({ fbCode: z.string().max(20).nullable() });

@@ -4,6 +4,7 @@ import { MessageCircle, Settings2 } from 'lucide-react';
 import { Badge, ButtonLink, Input, Select } from '@/components/ui';
 import { formatDate } from '@/lib/format';
 import { AdminPage, Card, CopyField, Pager, Table, Td, adminApi, useAdminMutation, useAdminQuery } from './common';
+import { FacebookDiagnostics } from './FacebookDiagnostics';
 
 interface Overview {
   enabled: boolean;
@@ -47,6 +48,8 @@ export default function FacebookBot() {
         </ButtonLink>
       }
     >
+      <FacebookDiagnostics />
+
       <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
         <Card title="Төлөв">
           <div className="space-y-4">
