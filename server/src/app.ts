@@ -18,6 +18,7 @@ import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { playbackRouter } from './modules/playback/playback.routes.js';
 import { webhooksRouter } from './modules/webhooks/webhooks.routes.js';
 import { adminRouter } from './modules/admin/index.js';
+import { mountClient } from './static.js';
 
 function trustProxy(value: string): boolean | number | string {
   if (value === 'true') return true;
@@ -98,6 +99,9 @@ export function createApp() {
   app.use('/api/payments', paymentsRouter);
   app.use('/api/playback', playbackRouter);
   app.use('/api/admin', adminRouter);
+
+  // Нэг домэйн deploy (Render г.м.): API нь build хийсэн сайтыг өөрөө үйлчилнэ
+  if (env.CLIENT_DIST_DIR) mountClient(app, env.CLIENT_DIST_DIR);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

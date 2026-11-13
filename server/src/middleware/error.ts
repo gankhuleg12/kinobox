@@ -30,6 +30,9 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     appErr = AppError.badRequest('JSON формат буруу байна');
   } else if (err?.name === 'MulterError') {
     appErr = AppError.badRequest(err.code === 'LIMIT_FILE_SIZE' ? 'Файлын хэмжээ хэт их байна' : 'Файл upload алдаа');
+  } else if (typeof err?.status === 'number' && err.status >= 400 && err.status < 500) {
+    // express.static, body-parser зэрэг middleware-ийн http-errors (жишээ нь байхгүй asset → 404)
+    appErr = err.status === 404 ? AppError.notFound() : new AppError(err.status, 'BAD_REQUEST', 'Буруу хүсэлт');
   } else {
     appErr = new AppError(500, 'INTERNAL_ERROR', 'Серверийн алдаа гарлаа');
   }

@@ -71,6 +71,14 @@ statsAdmin.get('/worker', async (_req, res) => {
   res.json({ online: Boolean(heartbeat), heartbeat, transcode });
 });
 
+/**
+ * Reverse proxy-ийн ард TRUST_PROXY зөв эсэхийг шалгах: `ip` нь таны жинхэнэ IP байх ёстой.
+ * Буруу бол rate limit бүх хэрэглэгчид нэг IP-ээр тоологдох эсвэл IP хуурамчаар солигдох эрсдэлтэй.
+ */
+statsAdmin.get('/whoami', (req, res) => {
+  res.json({ ip: req.ip, ips: req.ips, forwardedFor: req.get('x-forwarded-for') ?? null, trustProxy: env.TRUST_PROXY });
+});
+
 // ───────────── API тохиргоо (secret-ууд хэзээ ч буцаагдахгүй)
 export const settingsAdmin = Router();
 

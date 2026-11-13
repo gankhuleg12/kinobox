@@ -32,11 +32,26 @@ const schema = z.object({
   FFPROBE_PATH: z.string().default('ffprobe'),
   TRANSCODE_TMP_DIR: z.string().optional(),
   TRANSCODE_CONCURRENCY: z.coerce.number().int().min(1).default(1),
+  /** true: background worker-ийг API процесс дотор ажиллуулна (тусдаа worker service-гүй туршилтын орчин) */
+  RUN_WORKER: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  /** Build хийсэн frontend-ийн хавтас: тохируулбал API нь сайтыг өөрөө (нэг домэйноос) үйлчилнэ */
+  CLIENT_DIST_DIR: z.string().optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 
-const parsed = schema.safeParse(process.env);
+// Render.com: үйлчилгээний public URL-ийг автоматаар өгдөг тул тусад нь тохируулах шаардлагагүй
+const source: NodeJS.ProcessEnv = { ...process.env };
+if (source.RENDER_EXTERNAL_URL) {
+  source.APP_URL ||= source.RENDER_EXTERNAL_URL;
+  source.API_URL ||= source.RENDER_EXTERNAL_URL;
+  source.CORS_ORIGINS ||= source.RENDER_EXTERNAL_URL;
+}
+
+const parsed = schema.safeParse(source);
 if (!parsed.success) {
   console.error('❌ Env тохиргоо буруу байна:');
   for (const issue of parsed.error.issues) {

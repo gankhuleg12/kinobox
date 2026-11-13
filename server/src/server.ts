@@ -14,8 +14,15 @@ server.requestTimeout = 120_000;
 
 const stopSettingsSync = startSettingsSync();
 
+// Туршилтын/жижиг орчин: тусдаа worker service-гүйгээр job-уудыг энэ процесс дотор ажиллуулна
+let stopWorkers: () => Promise<void> = async () => undefined;
+if (env.RUN_WORKER) {
+  const { startWorkers } = await import('./workers/index.js');
+  stopWorkers = await startWorkers('embedded');
+}
+
 server.listen(env.PORT, () => {
-  logger.info(`🚀 KinoBox API → http://localhost:${env.PORT} (${env.NODE_ENV})`);
+  logger.info(`🚀 KinoBox API → http://localhost:${env.PORT} (${env.NODE_ENV}${env.RUN_WORKER ? ', +worker' : ''})`);
 });
 
 let shuttingDown = false;
@@ -25,6 +32,7 @@ async function shutdown(signal: string) {
   logger.info({ signal }, 'Shutting down gracefully…');
   const force = setTimeout(() => process.exit(1), 15_000).unref();
   server.close(async () => {
+    await stopWorkers().catch(() => undefined);
     await Promise.allSettled([stopSettingsSync(), prisma.$disconnect(), redis.quit()]);
     clearTimeout(force);
     process.exit(0);

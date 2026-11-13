@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────
+#  Render Blueprint — туршилтын deploy
+#  Render Dashboard → New → Blueprint → энэ repo-г сонгоно.
+#
+#  Бүтэц:  kinobox (Docker web: сайт + API + worker + ffmpeg)  ──▶  kinobox-redis (Key Value)
+#                                                             ──▶  MySQL 8 (гаднаас, жишээ нь Aiven)
+#                                                             ──▶  Cloudflare R2 (Admin-аас тохируулна)
+#
+#  ⚠️ Free түвшин: 15 мин хандалтгүй бол унтана (~1 мин сэргэнэ), CPU/RAM бага тул
+#     зөвхөн богино видео/reel туршихад тохиромжтой. Бүтэн кино transcode хийхэд
+#     доорх "worker" service-ийг идэвхжүүлж RUN_WORKER=false болгоно (төлбөртэй).
+# ─────────────────────────────────────────────────────────────
+services:
+  - type: web
+    name: kinobox
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # APP_URL, API_URL, CORS_ORIGINS нь Render-ийн RENDER_EXTERNAL_URL-ээс автоматаар авна.
+      # Өөрийн домэйн холбовол энд тохируулна:
+      # - key: APP_URL
+      #   value: https://kinobox.mn
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        sync: false # mysql://USER:PASS@HOST:PORT/DB?sslaccept=accept_invalid_certs
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: kinobox-redis
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_PLAYBACK_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      # Локал DB-гийн өгөгдлийг шилжүүлэх бол server/.env дахь утгыг яг хуулна
+      # (өөр түлхүүр бол Admin-д хадгалсан API key-үүдийг дахин оруулах шаардлагатай)
+      - key: SETTINGS_ENCRYPTION_KEY
+        sync: false
+      - key: RUN_WORKER
+        value: "true"
+      - key: TRANSCODE_CONCURRENCY
+        value: "1"
+      - key: LOG_LEVEL
+        value: info
+
+  # Тусдаа worker (төлбөртэй, Starter+). Идэвхжүүлэхдээ дээрх RUN_WORKER-г "false" болгоно.
+  # - type: worker
+  #   name: kinobox-worker
+  #   runtime: docker
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: node dist/worker.js
+  #   plan: starter
+  #   region: singapore
+  #   envVars:
+  #     - fromGroup: ... (web service-тэй ижил DATABASE_URL, REDIS_URL, SETTINGS_ENCRYPTION_KEY, JWT_*)
+
+  - type: keyvalue
+    name: kinobox-redis
+    plan: free
+    region: singapore
+    # BullMQ queue-д шаардлагатай
+    maxmemoryPolicy: noeviction
+    # Зөвхөн Render-ийн дотоод сүлжээнээс хандана
+    ipAllowList: []

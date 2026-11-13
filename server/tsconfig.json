@@ -15,5 +15,5 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src", "prisma/seed.ts", "vitest.config.ts"]
+  "include": ["src", "prisma/seed.ts", "prisma/copy-db.ts", "vitest.config.ts"]
 }

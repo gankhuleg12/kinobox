@@ -107,6 +107,25 @@ docker compose up -d --build
 docker compose run --rm api npm run db:seed
 ```
 
+## Render.com дээр туршилтаар ажиллуулах
+
+Root дахь [Dockerfile](Dockerfile) нь сайт + API + ffmpeg-ийг нэг image болгоно (API нь сайтыг өөрөө нэг домэйноос үйлчилнэ). [render.yaml](render.yaml) Blueprint нь web service + Key Value (Redis)-ийг үүсгэнэ.
+
+1. **MySQL 8** (Render-д MySQL байхгүй): жишээ нь [Aiven](https://aiven.io) Developer план. Connection URI-ийн төгсгөлийн `?ssl-mode=REQUIRED`-г `?sslaccept=accept_invalid_certs` болгож Prisma-д тааруулна.
+2. **Хүснэгт + өгөгдөл** (локал компьютероос):
+   ```powershell
+   cd server
+   $env:DATABASE_URL="mysql://avnadmin:...@HOST:PORT/defaultdb?sslaccept=accept_invalid_certs"
+   npx prisma migrate deploy
+   # A) Шинээр: $env:NODE_ENV="production"; npm run db:seed
+   # B) Локал өгөгдлөө хуулах: $env:SOURCE_DATABASE_URL="<локал>"; $env:TARGET_DATABASE_URL=$env:DATABASE_URL; npx tsx prisma/copy-db.ts
+   ```
+3. GitHub руу push хийгээд Render → **New → Blueprint** → repo-г сонгоно. `DATABASE_URL` болон `SETTINGS_ENCRYPTION_KEY`-г оруулна (B сонголтод `server/.env`-ийнхтэй **ижил** түлхүүр).
+4. Deploy дууссаны дараа `https://<нэр>.onrender.com`-ийг дараах газруудад нэмнэ: Google Console (redirect URI `/api/auth/google/callback`), R2 bucket-уудын CORS, Admin → Wire.mn → "Webhook бүртгэх", Facebook webhook.
+5. Admin нэвтэрч `/api/admin/stats/whoami`-г нээгээд `ip` нь өөрийн IP мөн эсэхийг шалгана (буруу бол `TRUST_PROXY`-г тааруулна).
+
+**Free түвшний хязгаарлалт:** 15 мин хандалтгүй бол унтана (~1 мин сэргэнэ); Key Value санах ойд л хадгалагдана (restart-д queue алдагдана); CPU/RAM бага тул worker (`RUN_WORKER=true`) зөвхөн богино видео/reel-д тохиромжтой. Бүтэн кинонд Starter план + тусдаа worker service (render.yaml-д тайлбартай) хэрэглэнэ.
+
 `web` (nginx) нь SPA болон `/api`-г нэг домэйнээр үйлчилнэ. Өмнө нь TLS terminate хийх proxy (Cloudflare, Caddy…) байрлуулна. Worker-ийг тусад нь олшруулж болно: `docker compose up -d --scale worker=3`.
 
 > ⚠️ `SETTINGS_ENCRYPTION_KEY`-г алдвал DB дэх бүх API key-г тайлах боломжгүй. Аюулгүй газар нөөцлөөрэй.
